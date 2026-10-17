@@ -4,6 +4,7 @@ from pymongo.errors import ConnectionFailure, PyMongoError, ServerSelectionTimeo
 from core.config import MongoConfigurationError
 from core.database import MongoConnectionError, get_movies_collection
 from schemas.movie import MovieCreate, MovieResponse
+from utils.mongo import serialize_mongo_documents
 
 router = APIRouter()
 
@@ -42,4 +43,40 @@ def create_movie(movie_in: MovieCreate) -> MovieResponse:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno al registrar la película.",
+        ) from exc
+
+
+@router.get(
+    "",
+    response_model=list[MovieResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Listar todas las películas",
+    description="Obtiene todas las películas registradas en el catálogo. Devuelve una lista vacía si no existen registros.",
+    responses={
+        200: {"description": "Lista de películas obtenida exitosamente."},
+        500: {"description": "Error interno al consultar la base de datos."},
+        503: {"description": "Servicio de base de datos no disponible o tiempo de espera agotado."},
+    },
+)
+def list_movies() -> list[MovieResponse]:
+    try:
+        collection = get_movies_collection()
+        cursor = collection.find()
+        documents = list(cursor)
+        serialized = serialize_mongo_documents(documents)
+        return [MovieResponse(**doc) for doc in serialized]
+    except (
+        MongoConfigurationError,
+        MongoConnectionError,
+        ConnectionFailure,
+        ServerSelectionTimeoutError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="MongoDB no está disponible.",
+        ) from exc
+    except PyMongoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno al consultar las películas.",
         ) from exc
