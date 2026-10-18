@@ -359,7 +359,7 @@ def filter_by_rating(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El parámetro 'min_rating' no puede ser mayor que 'max_rating'.",
         )
-    rating_filter: dict = {}
+    rating_filter: dict[str, float] = {}
     if min_rating is not None:
         rating_filter["$gte"] = min_rating
     if max_rating is not None:
