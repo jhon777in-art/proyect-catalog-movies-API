@@ -149,6 +149,220 @@ def search_movies(
         ) from exc
 
 
+# ── F7 ────────────────────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/filter/genre",
+    response_model=list[MovieResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Filtrar películas por género",
+    description=(
+        "Devuelve todas las películas cuyo campo `genero` coincida parcialmente "
+        "con el valor indicado (insensible a mayúsculas/minúsculas). "
+        "El parámetro `genre` es obligatorio y no puede estar vacío."
+    ),
+    responses={
+        200: {"description": "Lista de películas con el género indicado."},
+        400: {"description": "Parámetro 'genre' ausente o vacío."},
+        500: {"description": "Error interno al filtrar películas."},
+        503: {"description": "Servicio de base de datos no disponible o tiempo de espera agotado."},
+    },
+)
+def filter_by_genre(genre: str | None = None) -> list[MovieResponse]:
+    clean_genre = genre.strip() if genre and genre.strip() else None
+    if not clean_genre:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El parámetro 'genre' es obligatorio y no puede estar vacío.",
+        )
+    try:
+        collection = get_movies_collection()
+        cursor = collection.find(
+            {"genero": {"$regex": re.escape(clean_genre), "$options": "i"}}
+        )
+        documents = list(cursor)
+        serialized = serialize_mongo_documents(documents)
+        return [MovieResponse(**doc) for doc in serialized]
+    except (
+        MongoConfigurationError,
+        MongoConnectionError,
+        ConnectionFailure,
+        ServerSelectionTimeoutError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="MongoDB no está disponible.",
+        ) from exc
+    except PyMongoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno al filtrar películas por género.",
+        ) from exc
+
+
+# ── F8 ────────────────────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/filter/classification",
+    response_model=list[MovieResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Filtrar películas por clasificación",
+    description=(
+        "Devuelve todas las películas cuyo campo `clasificacion` coincida exactamente "
+        "con el valor indicado (insensible a mayúsculas/minúsculas). "
+        "El parámetro `classification` es obligatorio y no puede estar vacío."
+    ),
+    responses={
+        200: {"description": "Lista de películas con la clasificación indicada."},
+        400: {"description": "Parámetro 'classification' ausente o vacío."},
+        500: {"description": "Error interno al filtrar películas."},
+        503: {"description": "Servicio de base de datos no disponible o tiempo de espera agotado."},
+    },
+)
+def filter_by_classification(classification: str | None = None) -> list[MovieResponse]:
+    clean_cls = classification.strip() if classification and classification.strip() else None
+    if not clean_cls:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El parámetro 'classification' es obligatorio y no puede estar vacío.",
+        )
+    try:
+        collection = get_movies_collection()
+        cursor = collection.find(
+            {"clasificacion": {"$regex": f"^{re.escape(clean_cls)}$", "$options": "i"}}
+        )
+        documents = list(cursor)
+        serialized = serialize_mongo_documents(documents)
+        return [MovieResponse(**doc) for doc in serialized]
+    except (
+        MongoConfigurationError,
+        MongoConnectionError,
+        ConnectionFailure,
+        ServerSelectionTimeoutError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="MongoDB no está disponible.",
+        ) from exc
+    except PyMongoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno al filtrar películas por clasificación.",
+        ) from exc
+
+
+# ── F9 ────────────────────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/filter/year",
+    response_model=list[MovieResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Filtrar películas por año de estreno",
+    description=(
+        "Devuelve todas las películas cuyo `anio` de estreno coincida exactamente "
+        "con el valor entero indicado. "
+        "El parámetro `year` es obligatorio (entero ≥ 1888)."
+    ),
+    responses={
+        200: {"description": "Lista de películas del año indicado."},
+        400: {"description": "Parámetro 'year' ausente o inválido."},
+        500: {"description": "Error interno al filtrar películas."},
+        503: {"description": "Servicio de base de datos no disponible o tiempo de espera agotado."},
+    },
+)
+def filter_by_year(year: int | None = None) -> list[MovieResponse]:
+    if year is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El parámetro 'year' es obligatorio.",
+        )
+    if year < 1888:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El año debe ser igual o mayor a 1888.",
+        )
+    try:
+        collection = get_movies_collection()
+        cursor = collection.find({"anio": year})
+        documents = list(cursor)
+        serialized = serialize_mongo_documents(documents)
+        return [MovieResponse(**doc) for doc in serialized]
+    except (
+        MongoConfigurationError,
+        MongoConnectionError,
+        ConnectionFailure,
+        ServerSelectionTimeoutError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="MongoDB no está disponible.",
+        ) from exc
+    except PyMongoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno al filtrar películas por año.",
+        ) from exc
+
+
+# ── F10 ───────────────────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/filter/rating",
+    response_model=list[MovieResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Filtrar películas por calificación mínima",
+    description=(
+        "Devuelve todas las películas cuya `puntuacion` sea mayor o igual al valor "
+        "indicado. El parámetro `min_rating` es obligatorio (número entre 0.0 y 10.0)."
+    ),
+    responses={
+        200: {"description": "Lista de películas con calificación ≥ min_rating."},
+        400: {"description": "Parámetro 'min_rating' ausente o fuera del rango 0.0–10.0."},
+        500: {"description": "Error interno al filtrar películas."},
+        503: {"description": "Servicio de base de datos no disponible o tiempo de espera agotado."},
+    },
+)
+def filter_by_rating(min_rating: float | None = None) -> list[MovieResponse]:
+    if min_rating is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El parámetro 'min_rating' es obligatorio.",
+        )
+    if not (0.0 <= min_rating <= 10.0):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El parámetro 'min_rating' debe estar entre 0.0 y 10.0.",
+        )
+    try:
+        collection = get_movies_collection()
+        cursor = collection.find({"puntuacion": {"$gte": min_rating}})
+        documents = list(cursor)
+        serialized = serialize_mongo_documents(documents)
+        return [MovieResponse(**doc) for doc in serialized]
+    except (
+        MongoConfigurationError,
+        MongoConnectionError,
+        ConnectionFailure,
+        ServerSelectionTimeoutError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="MongoDB no está disponible.",
+        ) from exc
+    except PyMongoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno al filtrar películas por calificación.",
+        ) from exc
+
+
+# ── F3 ────────────────────────────────────────────────────────────────────────
+
+
 @router.get(
     "/{movie_id}",
     response_model=MovieResponse,
