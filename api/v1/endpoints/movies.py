@@ -1,3 +1,4 @@
+import re
 from bson import ObjectId
 from fastapi import APIRouter, HTTPException, status
 from pymongo.errors import ConnectionFailure, PyMongoError, ServerSelectionTimeoutError
@@ -84,6 +85,67 @@ def list_movies() -> list[MovieResponse]:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno al consultar las películas.",
+        ) from exc
+
+
+@router.get(
+    "/search",
+    response_model=list[MovieResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Buscar películas por título o director",
+    description="Busca películas aplicando coincidencias parciales e insensibles a mayúsculas/minúsculas sobre el título o director. Se debe proporcionar al menos un parámetro.",
+    responses={
+        200: {"description": "Resultados de búsqueda obtenidos exitosamente."},
+        400: {"description": "Parámetros de búsqueda inválidos o ausentes."},
+        500: {"description": "Error interno al realizar la búsqueda."},
+        503: {"description": "Servicio de base de datos no disponible o tiempo de espera agotado."},
+    },
+)
+def search_movies(
+    title: str | None = None,
+    director: str | None = None,
+) -> list[MovieResponse]:
+    clean_title = title.strip() if title and title.strip() else None
+    clean_director = director.strip() if director and director.strip() else None
+
+    if not clean_title and not clean_director:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Debe proporcionar al menos un parámetro de búsqueda ('title' o 'director') no vacío.",
+        )
+
+    criteria = []
+    if clean_title:
+        criteria.append(
+            {"titulo": {"$regex": re.escape(clean_title), "$options": "i"}}
+        )
+    if clean_director:
+        criteria.append(
+            {"director": {"$regex": re.escape(clean_director), "$options": "i"}}
+        )
+
+    query = {"$or": criteria} if len(criteria) > 1 else criteria[0]
+
+    try:
+        collection = get_movies_collection()
+        cursor = collection.find(query)
+        documents = list(cursor)
+        serialized = serialize_mongo_documents(documents)
+        return [MovieResponse(**doc) for doc in serialized]
+    except (
+        MongoConfigurationError,
+        MongoConnectionError,
+        ConnectionFailure,
+        ServerSelectionTimeoutError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="MongoDB no está disponible.",
+        ) from exc
+    except PyMongoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno al buscar películas.",
         ) from exc
 
 
