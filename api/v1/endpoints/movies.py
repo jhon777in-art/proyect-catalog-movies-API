@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from bson import ObjectId
 from fastapi import APIRouter, HTTPException, status
 from pymongo.errors import ConnectionFailure, PyMongoError, ServerSelectionTimeoutError
@@ -277,8 +278,6 @@ def filter_by_classification(classification: str | None = None) -> list[MovieRes
     },
 )
 def filter_by_year(year: int | None = None) -> list[MovieResponse]:
-    from datetime import datetime
-
     if year is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
