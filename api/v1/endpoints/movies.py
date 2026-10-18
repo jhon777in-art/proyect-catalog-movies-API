@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from bson import ObjectId
 from fastapi import APIRouter, HTTPException, status
 from pymongo.errors import ConnectionFailure, PyMongoError, ServerSelectionTimeoutError
@@ -211,13 +212,15 @@ def filter_by_genre(genre: str | None = None) -> list[MovieResponse]:
     summary="Filtrar películas por clasificación",
     description=(
         "Devuelve todas las películas cuyo campo `clasificacion` coincida exactamente "
-        "con el valor indicado (insensible a mayúsculas/minúsculas). "
-        "El parámetro `classification` es obligatorio y no puede estar vacío."
+        "con el valor indicado (coincidencia exacta, insensible a mayúsculas/minúsculas). "
+        "El parámetro `classification` es obligatorio y no puede estar vacío ni contener "
+        "únicamente espacios en blanco. "
+        "Devuelve una lista vacía cuando no existen coincidencias."
     ),
     responses={
-        200: {"description": "Lista de películas con la clasificación indicada."},
+        200: {"description": "Lista de películas con la clasificación indicada (puede ser vacía)."},
         400: {"description": "Parámetro 'classification' ausente o vacío."},
-        500: {"description": "Error interno al filtrar películas."},
+        500: {"description": "Error interno al filtrar películas por clasificación."},
         503: {"description": "Servicio de base de datos no disponible o tiempo de espera agotado."},
     },
 )
@@ -263,13 +266,14 @@ def filter_by_classification(classification: str | None = None) -> list[MovieRes
     summary="Filtrar películas por año de estreno",
     description=(
         "Devuelve todas las películas cuyo `anio` de estreno coincida exactamente "
-        "con el valor entero indicado. "
-        "El parámetro `year` es obligatorio (entero ≥ 1888)."
+        "con el valor entero indicado. El parámetro `year` es obligatorio; debe ser un "
+        "entero entre 1888 y el año en curso (inclusive). Se rechazan valores negativos, "
+        "cero y años futuros. Devuelve lista vacía si no hay coincidencias."
     ),
     responses={
-        200: {"description": "Lista de películas del año indicado."},
-        400: {"description": "Parámetro 'year' ausente o inválido."},
-        500: {"description": "Error interno al filtrar películas."},
+        200: {"description": "Lista de películas del año indicado (puede ser vacía)."},
+        400: {"description": "Parámetro 'year' ausente, negativo, cero o futuro."},
+        500: {"description": "Error interno al filtrar películas por año."},
         503: {"description": "Servicio de base de datos no disponible o tiempo de espera agotado."},
     },
 )
@@ -279,10 +283,11 @@ def filter_by_year(year: int | None = None) -> list[MovieResponse]:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El parámetro 'year' es obligatorio.",
         )
-    if year < 1888:
+    current_year = datetime.now().year
+    if year < 1888 or year > current_year:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El año debe ser igual o mayor a 1888.",
+            detail=f"El año debe estar entre 1888 y {current_year}.",
         )
     try:
         collection = get_movies_collection()
@@ -314,32 +319,54 @@ def filter_by_year(year: int | None = None) -> list[MovieResponse]:
     "/filter/rating",
     response_model=list[MovieResponse],
     status_code=status.HTTP_200_OK,
-    summary="Filtrar películas por calificación mínima",
+    summary="Filtrar películas por puntuación",
     description=(
-        "Devuelve todas las películas cuya `puntuacion` sea mayor o igual al valor "
-        "indicado. El parámetro `min_rating` es obligatorio (número entre 0.0 y 10.0)."
+        "Devuelve todas las películas cuya `puntuacion` esté dentro del rango indicado. "
+        "Se puede usar `min_rating`, `max_rating` o ambos simultáneamente; al menos uno "
+        "es obligatorio. Ambos valores deben estar entre 0.0 y 10.0. "
+        "Si se proporcionan ambos, `min_rating` no puede ser mayor que `max_rating`. "
+        "Los valores límite se incluyen en los resultados (operadores $gte / $lte). "
+        "Devuelve lista vacía si no hay coincidencias."
     ),
     responses={
-        200: {"description": "Lista de películas con calificación ≥ min_rating."},
-        400: {"description": "Parámetro 'min_rating' ausente o fuera del rango 0.0–10.0."},
-        500: {"description": "Error interno al filtrar películas."},
+        200: {"description": "Lista de películas dentro del rango de puntuación (puede ser vacía)."},
+        400: {"description": "Parámetros ausentes, fuera de rango, o min_rating > max_rating."},
+        500: {"description": "Error interno al filtrar películas por puntuación."},
         503: {"description": "Servicio de base de datos no disponible o tiempo de espera agotado."},
     },
 )
-def filter_by_rating(min_rating: float | None = None) -> list[MovieResponse]:
-    if min_rating is None:
+def filter_by_rating(
+    min_rating: float | None = None,
+    max_rating: float | None = None,
+) -> list[MovieResponse]:
+    if min_rating is None and max_rating is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El parámetro 'min_rating' es obligatorio.",
+            detail="Debe proporcionar al menos uno de los parámetros: 'min_rating' o 'max_rating'.",
         )
-    if not (0.0 <= min_rating <= 10.0):
+    if min_rating is not None and not (0.0 <= min_rating <= 10.0):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El parámetro 'min_rating' debe estar entre 0.0 y 10.0.",
         )
+    if max_rating is not None and not (0.0 <= max_rating <= 10.0):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El parámetro 'max_rating' debe estar entre 0.0 y 10.0.",
+        )
+    if min_rating is not None and max_rating is not None and min_rating > max_rating:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El parámetro 'min_rating' no puede ser mayor que 'max_rating'.",
+        )
+    rating_filter: dict[str, float] = {}
+    if min_rating is not None:
+        rating_filter["$gte"] = min_rating
+    if max_rating is not None:
+        rating_filter["$lte"] = max_rating
     try:
         collection = get_movies_collection()
-        cursor = collection.find({"puntuacion": {"$gte": min_rating}})
+        cursor = collection.find({"puntuacion": rating_filter})
         documents = list(cursor)
         serialized = serialize_mongo_documents(documents)
         return [MovieResponse(**doc) for doc in serialized]
@@ -356,7 +383,7 @@ def filter_by_rating(min_rating: float | None = None) -> list[MovieResponse]:
     except PyMongoError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno al filtrar películas por calificación.",
+            detail="Error interno al filtrar películas por puntuación.",
         ) from exc
 
 
