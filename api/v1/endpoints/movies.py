@@ -4,7 +4,7 @@ from pymongo.errors import ConnectionFailure, PyMongoError, ServerSelectionTimeo
 
 from core.config import MongoConfigurationError
 from core.database import MongoConnectionError, get_movies_collection
-from schemas.movie import MovieCreate, MovieResponse
+from schemas.movie import MovieCreate, MovieResponse, MovieUpdate
 from utils.mongo import (
     is_valid_object_id,
     serialize_mongo_document,
@@ -133,4 +133,66 @@ def get_movie(movie_id: str) -> MovieResponse:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno al consultar la película.",
+        ) from exc
+
+
+@router.put(
+    "/{movie_id}",
+    response_model=MovieResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Modificar una película",
+    description="Actualiza uno o varios campos permitidos de una película existente en el catálogo.",
+    responses={
+        200: {"description": "Película actualizada exitosamente."},
+        400: {"description": "Identificador de película inválido."},
+        404: {"description": "Película no encontrada."},
+        422: {"description": "Datos de entrada inválidos."},
+        500: {"description": "Error interno al actualizar la película."},
+        503: {"description": "Servicio de base de datos no disponible o tiempo de espera agotado."},
+    },
+)
+def update_movie(movie_id: str, movie_in: MovieUpdate) -> MovieResponse:
+    if not is_valid_object_id(movie_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Identificador de película inválido.",
+        )
+    update_data = movie_in.model_dump(exclude_unset=True)
+    update_data.pop("_id", None)
+    update_data.pop("id", None)
+
+    try:
+        collection = get_movies_collection()
+        oid = ObjectId(movie_id)
+        if update_data:
+            result = collection.update_one({"_id": oid}, {"$set": update_data})
+            if result.matched_count == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Película no encontrada.",
+                )
+        doc = collection.find_one({"_id": oid})
+        if not doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Película no encontrada.",
+            )
+        serialized = serialize_mongo_document(doc)
+        return MovieResponse(**serialized)
+    except HTTPException:
+        raise
+    except (
+        MongoConfigurationError,
+        MongoConnectionError,
+        ConnectionFailure,
+        ServerSelectionTimeoutError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="MongoDB no está disponible.",
+        ) from exc
+    except PyMongoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno al actualizar la película.",
         ) from exc
